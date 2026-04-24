@@ -5,57 +5,60 @@ import time
 import serial
 import pygame
 import os
+import threading
+import RPi.GPIO as GPIO
+from mfrc522 import SimpleMFRC522
 from vosk import Model, KaldiRecognizer
 from fuzzywuzzy import process
 
+# ==========================================
+# CONFIG & INIT
+# ==========================================
+MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm'
+MEGA_PORT = '/dev/arduino_mega' # Update to actual Uno port
+UNO_PORT = '/dev/arduino_icu' # Update to actual Mega port
+BAUD_RATE = 9600
+AUDIO_FOLDER = "/home/pi/HospitalVC/Audios/TR"
 
+VALID_UID_HEX = "633A18F6B7"
 
-#####################
-## Play Audio Class ##
-#####################
+# Commands based on system spec
+COMMANDS = [
+    "birinci kol gel", "birinci kol git", 
+    "ikinci kol gel", "ikinci kol git", 
+    "üçüncü kol gel", "üçüncü kol git",
+    "ekran göster", "pompayı aç", "pompayı kapat",
+    "kol"
+]
+SENSITIVITY = 70
 
-# Initialize mixer once at the start
+system_active = False 
+
 try:
     pygame.mixer.init()
 except Exception as e:
     print(f"[AUDIO ERROR] Mixer start failed: {e}")
 
-def play_audio(filename, folder_path):
-    """
-    Plays an audio file given a filename and a folder path.
-    Example: play_audio("opening.mp3", "/home/pi/Music")
-    """
-    full_path = os.path.join(folder_path, filename)
-
+def play_audio(filename):
+    full_path = os.path.join(AUDIO_FOLDER, filename)
     if not os.path.exists(full_path):
-        print(f"[AUDIO ERROR] File not found: {full_path}")
         return
-
     try:
-        # Check if audio is already playing and stop it (optional)
         if pygame.mixer.music.get_busy():
             pygame.mixer.music.stop()
-            
         pygame.mixer.music.load(full_path)
         pygame.mixer.music.play()
-        print(f"[AUDIO] Playing: {filename}")
     except Exception as e:
         print(f"[AUDIO FAILED] {e}")
-        
-# ==========================================
-# QUICK CONFIGURATION
-# ==========================================
-MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm' 
-SERIAL_PORT = '/dev/ttyACM0'  # CHECK YOUR PORT
-BAUD_RATE = 9600
 
-# ADDED "left" AND "right" TO COMMANDS
-COMMANDS = ["bir","iki", "üç", "sol","kapat","gel", "gaz aç", "aç", "light on", "left", "right","kumanda"]
-SENSITIVITY = 70
-
-# Ensure UTF-8 output
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+def send_cmd(ser, cmd, name):
+    if not ser:
+        print(f"[ERROR] The '{cmd}'. The {name} is not connected!")
+        return
+    msg = cmd.upper() + "\n"
+    ser.write(msg.encode())
+    ser.flush()
+    print(f"[{name}] Sent: {msg.strip()}")
 
 # ==========================================
 # LISTENER CLASS
@@ -67,139 +70,133 @@ class ActiveListener:
         self.sensitivity = sensitivity
         self.sample_rate = 16000
         self.chunk_size = 1024
-        self.p = None
-        self.stream = None
         
-        if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"Model not found at {self.model_path}")
-
-        print(f"[INIT] Loading Vosk Model...")
+        print("[INIT] Loading Vosk Model...")
         model = Model(self.model_path)
         self.rec = KaldiRecognizer(model, self.sample_rate)
+
     def start(self):
         self.p = pyaudio.PyAudio()
         dev_idx = None
-        # Auto-detect ReSpeaker or use default
         for i in range(self.p.get_device_count()):
             try:
                 if "seeed" in self.p.get_device_info_by_index(i).get("name", "").lower():
-                    dev_idx = i; break
-            except: continue
-            
-        print(f"[INIT] Microphone Index: {dev_idx if dev_idx else 'Default'}")
-        
+                    dev_idx = i
+                    break
+            except:
+                continue
+
         self.stream = self.p.open(format=pyaudio.paInt16, channels=1, rate=self.sample_rate,
-                                  input=True, input_device_index=dev_idx, frames_per_buffer=self.chunk_size)
+                                  input=True, input_device_index=dev_idx,
+                                  frames_per_buffer=self.chunk_size)
         self.stream.start_stream()
+        print("[STATUS] Microphone Active. Listening for commands...")
 
-    def stop(self):
-        if self.stream: self.stream.stop_stream(); self.stream.close()
-        if self.p: self.p.terminate()
     def listen(self):
-        print("[STATUS] Listening...")
-
         while True:
             try:
                 data = self.stream.read(self.chunk_size, exception_on_overflow=False)
-
-                # Only process when Vosk confirms a full waveform
                 if self.rec.AcceptWaveform(data):
-
                     res = json.loads(self.rec.Result())
                     self.rec.Reset()
-
                     text = res.get("text", "").strip()
-
-                    # Ignore empty recognitions
                     if not text:
-                        time.sleep(0.)
                         continue
-
-                    print("[STATUS] Processing... please wait")
-                    print(f"[RAW] Vosk heard: {text}")
-
-                    # First check exact match
+                    
                     if text in self.commands:
                         yield text, 100
                     else:
-                        # Fuzzy match fallback
                         match, score = process.extractOne(text, self.commands)
-
                         if score >= self.sensitivity:
                             yield match, score
-                        else:
-                            print(f"[INFO] No strong match (score={score})")
-
-                    print("[STATUS] Ready for next command in 2 seconds...")
-                    time.sleep(0.35)
-
-                    print("[STATUS] Listening again...")
-
-                # Small throttle to prevent CPU overload
-                time.sleep(0.01)
-
-            except KeyboardInterrupt:
-                break
-
             except Exception as e:
-                print(f"[ERROR] Listener: {e}")
                 break
-# ==========================================
-# Sending Serial Commandss:.
-# ==========================================
-def send_cmd(ser, cmd: str):
-    if not ser:
-        print("[SERIAL] Not connected")
-        return
-
-    msg = cmd.strip().upper() + "\n"
-    ser.write(msg.encode("utf-8"))
-    ser.flush()
-    print(f"[SERIAL] Sent: {msg.strip()}")
 
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
-
 if __name__ == "__main__":
-    # CONFIG
-    AUDIO_FOLDER_TR = "/home/pi/HospitalVC/Audios/TR" 
+    ser_uno = None
+    ser_mega = None
 
-    ser = None
-    listener = None
-    play_audio("SistemHazir.mp3", AUDIO_FOLDER_TR)
     try:
-        # 1. SETUP SERIAL
-        try:
-            ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-            time.sleep(2)
-        except:
-            print("[WARNING] Serial failed. Voice only.")
+        ser_uno = serial.Serial(UNO_PORT, BAUD_RATE, timeout=1)
+        ser_mega = serial.Serial(MEGA_PORT, BAUD_RATE, timeout=1)
+    except Exception as e:
+        print(f"[SERIAL WARNING] Check Arduino connections: {e}")
 
-        # 2. START LISTENER
+    # --- Thread 1: Mega Serial Listener ---
+    def mega_listener():
+        while True:
+            if ser_mega and ser_mega.in_waiting > 0:
+                line = ser_mega.readline().decode('utf-8').strip()
+                if line:
+                    print(f"[MEGA DEBUG] {line}")
+            time.sleep(0.1)
+
+    # --- Thread 2: RPi RFID Scanner ---
+    def rfid_listener():
+        global system_active
+        reader = SimpleMFRC522()
+        print("[RFID] Scanner Active. Place your tag near the reader...")
+        
+        try:
+            while True:
+                if not system_active:
+                    id, text = reader.read()
+                    if id:
+                        tag_hex = hex(id).upper().replace('0X', '')
+                        print(f"[RFID] Scanned Tag: {tag_hex}")
+                        if tag_hex == VALID_UID_HEX:
+                            system_active = True
+                            print("[SYSTEM] RFID Validated. Activating Voice Module...")                       
+                            play_audio("Ekran.mp3")
+                            send_cmd(ser_mega, "SYSTEM_READY", "MEGA") 
+                        else:
+                            print("[RFID] Unauthorized Card.")
+                        
+                        time.sleep(2) 
+                else:
+                    time.sleep(1) 
+        except Exception as e:
+            print(f"[RFID ERROR] {e}")
+
+    # Start Background Threads
+    threading.Thread(target=mega_listener, daemon=True).start()
+    threading.Thread(target=rfid_listener, daemon=True).start()
+
+    # Block main thread until RFID sets system_active to True
+    print("[STATUS] Waiting for RFID Verification to boot voice processing...")
+    try:
+        while not system_active:
+            time.sleep(0.5)
+            
+        # RFID Validated! Now load Vosk and open the microphone.
         listener = ActiveListener(MODEL_PATH, COMMANDS, SENSITIVITY)
         listener.start()
 
-        # 3. LOOP
         for command, score in listener.listen():
-            print(f"\n>>> MATCH: '{command}' ({score})")
+            cmd = command.lower()
+            print(f">>> {cmd} ({score})")
 
-            cmd = command.strip().lower()
-
-            # "stop" was removed here because it's not in your COMMANDS list. 
-            # If you want to use "stop", add it to the COMMANDS array at the top!
-            if cmd in ("kapat"):  
-                send_cmd(ser, cmd)  # send to Arduino
-                play_audio("komutAlindi.mp3", AUDIO_FOLDER_TR)
-            if cmd in ("aç"):  
-                send_cmd(ser, cmd)  # send to Arduino
-                play_audio("komutAlindi.mp3", AUDIO_FOLDER_TR)
-            # Replaced "exit" and "close" with "kapat" which IS in your COMMANDS list
-     
-
+            # Route to UNO
+            if cmd == "ekran göster":
+                send_cmd(ser_uno, "ekran-8F6", "UNO") 
+            
+            # Route to MEGA
+            elif cmd == "pompayı aç":
+                send_cmd(ser_mega, "POMPAC", "MEGA")
+            elif cmd == "pompayı kapat":
+                send_cmd(ser_mega, "POMPKAPAT", "MEGA")
+            elif "kol gel" in cmd or "kol git" in cmd:
+                send_cmd(ser_mega, cmd.upper(), "MEGA")
+            elif cmd in ("ac", "aç", "kapat", "kol"):
+                send_cmd(ser_mega, cmd.upper(), "MEGA")
+                
     except KeyboardInterrupt:
-        print("\n[STOP] User interrupted.")
+        print("\n[STATUS] Stopping System...")
     finally:
-        if listener: listener.stop()
-        if ser: ser.close()
-        pygame.mixer.quit() # Clean up audio
+        if ser_uno: ser_uno.close()
+        if ser_mega: ser_mega.close()
+        GPIO.cleanup() 
+        print("[STATUS] GPIO Cleaned. Exiting.")
