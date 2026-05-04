@@ -4,246 +4,262 @@
 #include <SD.h>
 #include <DHT.h>
 
-// --- LCD Definitions ---
 MCUFRIEND_kbv tft;
-#define SD_CS 10
 
-// --- Sensor Definitions ---
-#define DHTPIN 13
-#define DHTTYPE DHT22
-#define OZONE_PIN 12
+// --- PINOUT ---
+#define SD_CS             10
+#define LCD_CS            A3
+#define DHTPIN            A5
+#define OZONE_ANALOG_PIN  A4
+#define OZONE_DIGITAL_PIN 4
+
+#define DHTTYPE   DHT22
+#define BUFFPIXEL 10   
 
 DHT dht(DHTPIN, DHTTYPE);
 
-// --- State and Timing Variables ---
+// --- State Management ---
 unsigned long imageDisplayTime = 0;
 unsigned long lastSensorUpdate = 0;
-bool showingImage = false;
+bool showingImage     = false;
+bool showingMusicList = false;
 
-void setup() {
-  Serial.begin(9600);
-  
-  // Sensor Setup
-  dht.begin();
-  pinMode(OZONE_PIN, INPUT);
+const char s0[] PROGMEM = "1 - UZUNINCE";
+const char s1[] PROGMEM = "2 - SANDMAN";
+const char s2[] PROGMEM = "3 - CICEKLER";
+const char s3[] PROGMEM = "4 - LAZZIYA";
+const char* const sarkiListesi[] PROGMEM = {s0, s1, s2, s3};
+const uint8_t sarkiSayisi = 4;
 
-  // SD Setup
-  pinMode(10, OUTPUT);
-  digitalWrite(10, HIGH);
-  if (!SD.begin(SD_CS)) {
-    Serial.println("SD failed!");
-  }
+char sarkiBuf[20];
 
-  // TFT Setup & ID Fix
-  tft.reset();
-  uint16_t ID = tft.readID();
-  Serial.print("Raw TFT ID = 0x");
-  Serial.println(ID, HEX);
-  if (ID == 0x1919) ID = 0x9341; // Fix for specific shield bug
-  
-  tft.begin(ID);
-  tft.setRotation(1);
+// ---------------- HELPERS ----------------
 
-  // Draw the initial UI Template
-  drawIdleTemplate();
+void getSarki(uint8_t i) {
+  strcpy_P(sarkiBuf, (char*)pgm_read_word(&(sarkiListesi[i])));
 }
 
-// Draws the static text (run once when entering idle state)
+void trimStr(char* s) {
+  int start = 0;
+  while (s[start] == ' ' || s[start] == '\n' || s[start] == '\r') start++;
+  if (start) memmove(s, s + start, strlen(s) - start + 1);
+  int end = strlen(s) - 1;
+  while (end >= 0 && (s[end] == ' ' || s[end] == '\n' || s[end] == '\r')) s[end--] = '\0';
+}
+
+// ---------------- UI DRAWING ----------------
+
 void drawIdleTemplate() {
-  tft.fillScreen(0x0000); // Black background
-  tft.setTextColor(0xFFFF, 0x0000); // White text
+  tft.fillScreen(0x0000);
+  tft.setTextColor(0xFFFF, 0x0000);
   tft.setTextSize(2);
-
-  tft.setCursor(10, 10);
-  tft.print("Surgexa System Idle");
-
+  tft.setCursor(10, 10);  tft.print(F("Surgexa Idle"));
   tft.drawFastHLine(0, 35, 320, 0xFFFF);
-
-  tft.setCursor(10, 55);
-  tft.print("Temp:");
-
-  tft.setCursor(10, 105);
-  tft.print("Hum :");
-
-  tft.setCursor(10, 155);
-  tft.print("Ozone:");
-  
-  // Force an immediate sensor read
-  updateIdleSensors(); 
+  tft.setCursor(10, 55);  tft.print(F("Temp:"));
+  tft.setCursor(10, 105); tft.print(F("Hum :"));
+  tft.setCursor(10, 155); tft.print(F("Ozone:"));
+  updateIdleSensors();
 }
 
-// Updates just the numbers so the screen doesn't flicker
 void updateIdleSensors() {
-  float hum = dht.readHumidity();
-  float temp = dht.readTemperature();
-  int ozone = digitalRead(OZONE_PIN);
+  if (showingImage || showingMusicList) return;
 
-  // Clear ONLY the areas where sensor values go
-  tft.fillRect(130, 50, 180, 35, 0x0000); // Clear Temp area
-  tft.fillRect(130, 100, 180, 35, 0x0000); // Clear Hum area
-  tft.fillRect(130, 150, 180, 35, 0x0000); // Clear Ozone area
-  tft.fillRect(10, 240, 300, 20, 0x0000);  // Clear Error text area
+  float hum      = dht.readHumidity();
+  float temp     = dht.readTemperature();
+  int   rawOzone = analogRead(OZONE_ANALOG_PIN);
+  int   ozDig    = digitalRead(OZONE_DIGITAL_PIN);
 
   tft.setTextColor(0xFFFF, 0x0000);
   tft.setTextSize(2);
 
-  if (isnan(hum) || isnan(temp)) {
-    tft.setCursor(10, 240);
-    tft.print("DHT ERROR");
-  } else {
-    tft.setCursor(130, 55);
-    tft.print(temp, 1);
-    tft.print(" C");
+  tft.setCursor(130, 55);
+  if (!isnan(temp)) { tft.print(temp); tft.print(F(" C  ")); } 
+  else { tft.print(F("-- C  ")); }
 
-    tft.setCursor(130, 105);
-    tft.print(hum, 1);
-    tft.print(" %");
-  }
+  tft.setCursor(130, 105);
+  if (!isnan(hum)) { tft.print(hum);  tft.print(F(" %  ")); } 
+  else { tft.print(F("-- %  ")); }
 
   tft.setCursor(130, 155);
-  if (ozone == HIGH) {
-    tft.print("DETECTED");
-  } else {
-    tft.print("CLEAR");
+  tft.print(rawOzone);
+  tft.print(F(" | "));
+  tft.print(ozDig ? F("DET") : F("OK "));
+}
+
+void drawMusicList() {
+  tft.fillScreen(0x0000);
+  tft.setTextColor(0x07E0); 
+  tft.setTextSize(3);
+  tft.setCursor(10, 10); tft.print(F("Muzik"));
+  tft.drawFastHLine(0, 40, 320, 0xFFFF);
+  
+  tft.setTextColor(0xFFFF);
+  tft.setTextSize(2);
+  for (uint8_t i = 0; i < sarkiSayisi; i++) {
+    getSarki(i);
+    tft.setCursor(10, 60 + (i * 35));
+    tft.print(sarkiBuf);
   }
 }
+
+// ---------------- SETUP ----------------
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+  
+  pinMode(OZONE_ANALOG_PIN,  INPUT);
+  pinMode(OZONE_DIGITAL_PIN, INPUT);
+  pinMode(SD_CS,  OUTPUT); digitalWrite(SD_CS,  HIGH);
+  pinMode(LCD_CS, OUTPUT); digitalWrite(LCD_CS, HIGH);
+
+  tft.reset();
+  uint16_t identifier = tft.readID();
+  if (identifier == 0x0000 || identifier == 0x1919) identifier = 0x9341;
+  tft.begin(identifier);
+  tft.setRotation(1);
+
+  if (!SD.begin(SD_CS)) {
+    Serial.println(F("SD Init Fail!"));
+  } else {
+    Serial.println(F("SD Init OK."));
+  }
+
+  drawIdleTemplate();
+}
+
+// ---------------- LOOP ----------------
 
 void loop() {
-  unsigned long currentMillis = millis();
-
-  // 1. Manage Active Image State
-  if (showingImage) {
-    // Check if 10 seconds have passed
-    if (currentMillis - imageDisplayTime >= 10000) {
-      showingImage = false;
-      drawIdleTemplate(); // Restore the sensor UI
-      Serial.println("DEBUG: Screen Cleared");
+  if (Serial.available()) {
+    char cmd[24];
+    uint8_t len = Serial.readBytesUntil('\n', cmd, 23);
+    cmd[len] = '\0';
+    
+    for(int i=0; i<len; i++) {
+      if(cmd[i] == '_') cmd[i] = ' ';
+      cmd[i] = toupper(cmd[i]);
     }
-  } 
-  // 2. Manage Idle State (Update sensors every 1 second without blocking)
-  else {
-    if (currentMillis - lastSensorUpdate >= 1000) {
-      updateIdleSensors();
-      lastSensorUpdate = currentMillis;
+    trimStr(cmd);
+
+    // --- Command: EKRAN-<name> ---
+    if (strncmp(cmd, "EKRAN-", 6) == 0) {
+      char filename[25]; // Increased size for safety
+      strcpy(filename, cmd + 6);
+      strcat(filename, ".BMP");
+      
+      showingImage = true;
+      showingMusicList = false;
+
+      // FIX: Clear screen before drawing BMP so Idle menu disappears
+      tft.fillScreen(0x0000); 
+      bmpDraw(filename, 0, 0);
+      
+      imageDisplayTime = millis();
+    }
+    // --- Command: MUZIK AC ---
+    else if (strcmp(cmd, "MUZIK AC") == 0) {
+      showingMusicList = true;
+      showingImage = false;
+      drawMusicList();
+    }
+    // --- Command: MUZIK KAPAT ---
+    else if (strcmp(cmd, "MUZIK KAPAT") == 0) {
+      showingMusicList = false;
+      showingImage = false;
+      drawIdleTemplate();
+    }
+    // --- Command: Song Selection ---
+    else if (showingMusicList && strlen(cmd) == 1 && cmd[0] >= '1' && cmd[0] <= '4') {
+      int choice = cmd[0] - '1';
+      getSarki(choice);
+      Serial.print(F("Playing: ")); Serial.println(sarkiBuf);
+      
+      tft.fillRect(0, 200, 320, 40, 0x0000);
+      tft.setCursor(10, 210);
+      tft.setTextColor(0xF800); 
+      tft.print(F("Playing: ")); tft.print(sarkiBuf);
     }
   }
 
-  // 3. Listen for Raspberry Pi Commands (Instantly responsive!)
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    cmd.toUpperCase();
-    
-    if (cmd.startsWith("EKRAN-")) {
-      String fileId = cmd.substring(6);
-      String filename = fileId + ".bmp";
-      
-      char charBuf[50];
-      filename.toCharArray(charBuf, 50);
-      
-      tft.fillScreen(0x0000); // Clear screen to black for the image
-      bmpDraw(charBuf, 0, 0); // Draw image from SD
-      
-      showingImage = true;
-      imageDisplayTime = millis();
-    }
+  unsigned long now = millis();
+
+  if (showingImage && (now - imageDisplayTime >= 10000)) {
+    showingImage = false;
+    drawIdleTemplate();
+  }
+
+  if (!showingImage && !showingMusicList && (now - lastSensorUpdate >= 2000)) {
+    updateIdleSensors();
+    lastSensorUpdate = now;
   }
 }
 
-// ==========================================
-// BMP DRAWING FUNCTION
-// ==========================================
-#define BUFFPIXEL 20
+// ---------------- BMP DRAW UTILITY ----------------
 
-void bmpDraw(char *filename, int x, int y) {
-  File bmpFile;
-  int bmpWidth, bmpHeight;
-  uint8_t bmpDepth;
+void bmpDraw(char* filename, int x, int y) {
+  File     bmpFile;
+  int      bmpWidth, bmpHeight;
+  uint8_t  bmpDepth;
   uint32_t bmpImageoffset;
   uint32_t rowSize;
-  uint8_t sdbuffer[3*BUFFPIXEL];
+  uint8_t  sdbuffer[3 * BUFFPIXEL];
   uint16_t lcdbuffer[BUFFPIXEL];
-  boolean goodBmp = false;
-  boolean flip = true;
-  int w, h, row, col;
-  uint8_t r, g, b;
-  uint32_t pos = 0;
-  uint8_t lcdidx = 0;
-  boolean first = true;
-
-  if((x >= tft.width()) || (y >= tft.height())) return;
+  uint8_t  buffidx = sizeof(sdbuffer);
+  bool     flip    = true;
+  int      w, h, row, col;
+  uint8_t  r, g, b;
+  uint32_t pos     = 0;
+  uint8_t  lcdidx  = 0;
+  bool     first   = true;
 
   if ((bmpFile = SD.open(filename)) == NULL) {
-    Serial.print(F("File not found: "));
-    Serial.println(filename);
+    Serial.print(F("Not found: ")); Serial.println(filename);
+    drawIdleTemplate(); 
+    showingImage = false;
     return;
   }
 
-  if (read16(bmpFile) == 0x4D42) { // BMP signature
-    (void)read32(bmpFile); // Read & ignore creator bytes
-    bmpImageoffset = read32(bmpFile); // Start of image data
-    read32(bmpFile); // Read & ignore Header size
-    
+  if (read16(bmpFile) == 0x4D42) {
+    read32(bmpFile); read32(bmpFile);
+    bmpImageoffset = read32(bmpFile);
+    read32(bmpFile);
     bmpWidth  = read32(bmpFile);
     bmpHeight = read32(bmpFile);
-    if(read16(bmpFile) == 1) { // # planes -- must be '1'
-      bmpDepth = read16(bmpFile); // bits per pixel
-      if((bmpDepth == 24) && (read32(bmpFile) == 0)) { // 0 = uncompressed
-        goodBmp = true;
+
+    if (read16(bmpFile) == 1) {
+      bmpDepth = read16(bmpFile);
+      if (bmpDepth == 24 && read32(bmpFile) == 0) {
         rowSize = (bmpWidth * 3 + 3) & ~3;
-        if(bmpHeight < 0) {
-          bmpHeight = -bmpHeight;
-          flip = false;
-        }
+        if (bmpHeight < 0) { bmpHeight = -bmpHeight; flip = false; }
+        w = bmpWidth; h = bmpHeight;
+        if ((x + w - 1) >= tft.width())  w = tft.width()  - x;
+        if ((y + h - 1) >= tft.height()) h = tft.height() - y;
 
-        w = bmpWidth;
-        h = bmpHeight;
-        if((x+w-1) >= tft.width())  w = tft.width()  - x;
-        if((y+h-1) >= tft.height()) h = tft.height() - y;
+        tft.setAddrWindow(x, y, x + w - 1, y + h - 1);
 
-        tft.setAddrWindow(x, y, x+w-1, y+h-1);
-
-        for (row=0; row<h; row++) { 
-          if(flip) pos = bmpImageoffset + (bmpHeight - 1 - row) * rowSize;
-          else     pos = bmpImageoffset + row * rowSize;
-          if(bmpFile.position() != pos) {
+        for (row = 0; row < h; row++) {
+          pos = flip ? bmpImageoffset + (bmpHeight - 1 - row) * rowSize : bmpImageoffset + row * rowSize;
+          if (bmpFile.position() != pos) {
             bmpFile.seek(pos);
-            lcdidx = 0; // Force buffer reload
+            buffidx = sizeof(sdbuffer);
           }
-
-          for (col=0; col<w; col++) { 
-            if (lcdidx >= sizeof(sdbuffer)) { 
+          for (col = 0; col < w; col++) {
+            if (buffidx >= sizeof(sdbuffer)) {
+              if (lcdidx > 0) { tft.pushColors(lcdbuffer, lcdidx, first); lcdidx = 0; first = false; }
               bmpFile.read(sdbuffer, sizeof(sdbuffer));
-              lcdidx = 0; 
+              buffidx = 0;
             }
-            b = sdbuffer[lcdidx++];
-            g = sdbuffer[lcdidx++];
-            r = sdbuffer[lcdidx++];
-            lcdbuffer[col] = tft.color565(r,g,b);
+            b = sdbuffer[buffidx++]; g = sdbuffer[buffidx++]; r = sdbuffer[buffidx++];
+            lcdbuffer[lcdidx++] = tft.color565(r, g, b);
           }
-          tft.pushColors(lcdbuffer, w, first);
-          first = false;
         }
-      } 
+        if (lcdidx > 0) tft.pushColors(lcdbuffer, lcdidx, first);
+      }
     }
   }
-
   bmpFile.close();
-  if(!goodBmp) Serial.println(F("BMP format not recognized."));
 }
 
-uint16_t read16(File f) {
-  uint16_t result;
-  ((uint8_t *)&result)[0] = f.read(); // LSB
-  ((uint8_t *)&result)[1] = f.read(); // MSB
-  return result;
-}
-
-uint32_t read32(File f) {
-  uint32_t result;
-  ((uint8_t *)&result)[0] = f.read(); // LSB
-  ((uint8_t *)&result)[1] = f.read();
-  ((uint8_t *)&result)[2] = f.read();
-  ((uint8_t *)&result)[3] = f.read(); // MSB
-  return result;
-}
+uint16_t read16(File f) { uint16_t result; f.read((uint8_t*)&result, sizeof(result)); return result; }
+uint32_t read32(File f) { uint32_t result; f.read((uint8_t*)&result, sizeof(result)); return result; }
