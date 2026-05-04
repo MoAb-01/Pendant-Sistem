@@ -1,3 +1,6 @@
+//SURGEXA®2026 ALL RIGHTS RESERVED
+// MEMORY USAGE: %95
+
 #include <MCUFRIEND_kbv.h>
 #include <Adafruit_GFX.h>
 #include <SPI.h>
@@ -6,7 +9,10 @@
 
 MCUFRIEND_kbv tft;
 
-// --- PINOUT ---
+
+//          PINS 
+//___________________________
+
 #define SD_CS             10
 #define LCD_CS            A3
 #define DHTPIN            A5
@@ -18,27 +24,25 @@ MCUFRIEND_kbv tft;
 
 DHT dht(DHTPIN, DHTTYPE);
 
-// --- State Management ---
-unsigned long imageDisplayTime = 0;
-unsigned long lastSensorUpdate = 0;
-bool showingImage     = false;
-bool showingMusicList = false;
+//          Variables 
+//___________________________
+unsigned long imageDisplayTime = 0; //img display time counter
+unsigned long lastSensorUpdate = 0; //sensor display time counter
+bool showingImage     = false;      //image showing state
+bool showingMusicList = false;      //music List state
 
-const char s0[] PROGMEM = "1 - UZUNINCE";
-const char s1[] PROGMEM = "2 - SANDMAN";
-const char s2[] PROGMEM = "3 - CICEKLER";
-const char s3[] PROGMEM = "4 - LAZZIYA";
+//MUSIC NAMES LIST
+const char s0[] PROGMEM = "1 - UZUNINCE";  //music list 1
+const char s1[] PROGMEM = "2 - SANDMAN";  //music list 2
+const char s2[] PROGMEM = "3 - CICEKLER"; // music list 3
+const char s3[] PROGMEM = "4 - LAZZIYA";  // music list 4
 const char* const sarkiListesi[] PROGMEM = {s0, s1, s2, s3};
 const uint8_t sarkiSayisi = 4;
 
 char sarkiBuf[20];
-
-// ---------------- HELPERS ----------------
-
 void getSarki(uint8_t i) {
   strcpy_P(sarkiBuf, (char*)pgm_read_word(&(sarkiListesi[i])));
 }
-
 void trimStr(char* s) {
   int start = 0;
   while (s[start] == ' ' || s[start] == '\n' || s[start] == '\r') start++;
@@ -47,8 +51,10 @@ void trimStr(char* s) {
   while (end >= 0 && (s[end] == ' ' || s[end] == '\n' || s[end] == '\r')) s[end--] = '\0';
 }
 
-// ---------------- UI DRAWING ----------------
+//       Screen drawing        
+//___________________________
 
+//Idle State Screen
 void drawIdleTemplate() {
   tft.fillScreen(0x0000);
   tft.setTextColor(0xFFFF, 0x0000);
@@ -60,39 +66,33 @@ void drawIdleTemplate() {
   tft.setCursor(10, 155); tft.print(F("Ozone:"));
   updateIdleSensors();
 }
-
+// Update Idle Screen states
 void updateIdleSensors() {
   if (showingImage || showingMusicList) return;
-
   float hum      = dht.readHumidity();
   float temp     = dht.readTemperature();
   int   rawOzone = analogRead(OZONE_ANALOG_PIN);
   int   ozDig    = digitalRead(OZONE_DIGITAL_PIN);
-
   tft.setTextColor(0xFFFF, 0x0000);
   tft.setTextSize(2);
-
   tft.setCursor(130, 55);
   if (!isnan(temp)) { tft.print(temp); tft.print(F(" C  ")); } 
   else { tft.print(F("-- C  ")); }
-
   tft.setCursor(130, 105);
   if (!isnan(hum)) { tft.print(hum);  tft.print(F(" %  ")); } 
   else { tft.print(F("-- %  ")); }
-
   tft.setCursor(130, 155);
   tft.print(rawOzone);
   tft.print(F(" | "));
   tft.print(ozDig ? F("DET") : F("OK "));
 }
-
+// Music List Menu
 void drawMusicList() {
   tft.fillScreen(0x0000);
   tft.setTextColor(0x07E0); 
   tft.setTextSize(3);
   tft.setCursor(10, 10); tft.print(F("Muzik"));
-  tft.drawFastHLine(0, 40, 320, 0xFFFF);
-  
+  tft.drawFastHLine(0, 40, 320, 0xFFFF);  
   tft.setTextColor(0xFFFF);
   tft.setTextSize(2);
   for (uint8_t i = 0; i < sarkiSayisi; i++) {
@@ -102,7 +102,8 @@ void drawMusicList() {
   }
 }
 
-// ---------------- SETUP ----------------
+// Pins Configurations And Setup       
+//___________________________
 
 void setup() {
   Serial.begin(9600);
@@ -128,7 +129,7 @@ void setup() {
   drawIdleTemplate();
 }
 
-// ---------------- LOOP ----------------
+
 
 void loop() {
   if (Serial.available()) {
@@ -142,7 +143,9 @@ void loop() {
     }
     trimStr(cmd);
 
-    // --- Command: EKRAN-<name> ---
+    // 1..command: Show image 
+
+    // EKRAN-LAST 3 DIGITS OF RFID card
     if (strncmp(cmd, "EKRAN-", 6) == 0) {
       char filename[25]; // Increased size for safety
       strcpy(filename, cmd + 6);
@@ -150,31 +153,28 @@ void loop() {
       
       showingImage = true;
       showingMusicList = false;
-
-      // FIX: Clear screen before drawing BMP so Idle menu disappears
-      tft.fillScreen(0x0000); 
+      tft.fillScreen(0x0000); // clear screen before idle menu case
       bmpDraw(filename, 0, 0);
       
       imageDisplayTime = millis();
     }
-    // --- Command: MUZIK AC ---
-    else if (strcmp(cmd, "MUZIK AC") == 0) {
+    // 1..command:MUZIK AC
+    else if (strcmp(cmd, "MUZIK_AC") == 0) {
       showingMusicList = true;
       showingImage = false;
       drawMusicList();
     }
-    // --- Command: MUZIK KAPAT ---
-    else if (strcmp(cmd, "MUZIK KAPAT") == 0) {
+    // 2.. Command: MUZIK KAPAT 
+    else if (strcmp(cmd, "MUZIK_KAPAT") == 0) {
       showingMusicList = false;
       showingImage = false;
       drawIdleTemplate();
     }
-    // --- Command: Song Selection ---
+    // 3..Command: Song Selection ---
     else if (showingMusicList && strlen(cmd) == 1 && cmd[0] >= '1' && cmd[0] <= '4') {
       int choice = cmd[0] - '1';
       getSarki(choice);
       Serial.print(F("Playing: ")); Serial.println(sarkiBuf);
-      
       tft.fillRect(0, 200, 320, 40, 0x0000);
       tft.setCursor(10, 210);
       tft.setTextColor(0xF800); 
@@ -195,7 +195,10 @@ void loop() {
   }
 }
 
-// ---------------- BMP DRAW UTILITY ----------------
+// Pins Configurations And Setup Utilizations and Helper Functions  
+//Rights Reserved For Tech Trends     
+//___________________________
+
 
 void bmpDraw(char* filename, int x, int y) {
   File     bmpFile;
