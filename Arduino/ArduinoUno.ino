@@ -138,7 +138,6 @@ void loop() {
     cmd[len] = '\0';
     
     for(int i=0; i<len; i++) {
-      if(cmd[i] == '_') cmd[i] = ' ';
       cmd[i] = toupper(cmd[i]);
     }
     trimStr(cmd);
