@@ -15,20 +15,20 @@ from fuzzywuzzy import process
 # CONFIG & INIT
 # ==========================================
 MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm'
-MEGA_PORT = '/dev/arduino_mega' # Update to actual Uno port
-UNO_PORT = '/dev/arduino_icu' # Update to actual Mega port
+MEGA_PORT = '/dev/arduino_mega' # Update to actual Mega port
+UNO_PORT = '/dev/arduino_uno' # Update to actual Uno port
 BAUD_RATE = 9600
 AUDIO_FOLDER = "/home/pi/HospitalVC/Audios/TR"
 
 VALID_UID_HEX = "633A18F6B7"
 
-# Commands based on system spec
+# YENİ: Dinlenecek komutlar listesine "müzik çal", "sustur", "durdur", "çıkış" eklendi.
 COMMANDS = [
     "birinci kol gel", "birinci kol git", 
     "ikinci kol gel", "ikinci kol git", 
     "üçüncü kol gel", "üçüncü kol git",
     "ekran göster", "pompayı aç", "pompayı kapat",
-    "kol"
+    "kol", "müzik aç", "müzik çal", "müzik sustur", "sustur", "durdur", "çıkış", "bir", "iki", "üç", "dört"
 ]
 SENSITIVITY = 70
 
@@ -50,6 +50,60 @@ def play_audio(filename):
         pygame.mixer.music.play()
     except Exception as e:
         print(f"[AUDIO FAILED] {e}")
+
+
+# ==========================================
+# MUSIC PLAYER ROUTINE
+# ==========================================
+SONG_MAP = {
+    "bir": "uzunincebiryoldayim.mp3",
+    "iki": "entersandman.mp3",
+    "üç": "cicekleryasta.mp3",
+    "dört": "lazziya.mp3"
+}
+
+# GÜVENLİK KİLİDİ: Başlangıçta menü kapalı
+is_music_menu_open = False  
+
+def play_music_routine(cmd, ser_uno):
+    global is_music_menu_open # Python'a kilidi kullanacağımızı söylüyoruz
+
+    if cmd in ["müzik aç", "müzik çal"]:
+        is_music_menu_open = True # Menü açıldı, kilidi kaldır.
+        send_cmd(ser_uno, "MUZIK_AC", "UNO")
+        print("[MUSIC] Müzik menüsü açıldı.")
+        
+    elif cmd in SONG_MAP:
+        # GÜVENLİK KONTROLÜ: Menü açık değilse sayıyı duymazdan gel.
+        if not is_music_menu_open:
+            print("[WARNING] Menü kapalı! Önce 'Müzik Çal' demelisiniz.")
+            return
+
+        # Rpi hafızasındaki önceki şarkıyı tamamen temizle (takılı kalmaması için)
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.stop()
+            pygame.mixer.music.unload()
+
+        # Spikerden gelen kelimeyi sayıya (1, 2) çevirip Uno'ya yolla
+        song_index = list(SONG_MAP.keys()).index(cmd) + 1
+        send_cmd(ser_uno, str(song_index), "UNO")
+        
+        # Rpi hoparlöründen müziği başlat
+        file_name = SONG_MAP[cmd]
+        print(f"[MUSIC] Çalınıyor: {file_name}")
+        play_audio(file_name)
+        
+    elif cmd in ["müzik sustur", "sustur", "durdur", "çıkış"]:
+        is_music_menu_open = False # Menü kapandı, kilidi devreye sok.
+        
+        # Senin belirttiğin gibi MUZIK_KAPAT komutu gönderiliyor
+        send_cmd(ser_uno, "MUZIK_KAPAT", "UNO") 
+        
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.stop()
+            pygame.mixer.music.unload()
+        print("[MUSIC] Müzik durduruldu ve menü kapatıldı.")
+
 
 def send_cmd(ser, cmd, name):
     if not ser:
@@ -149,7 +203,7 @@ if __name__ == "__main__":
                         print(f"[RFID] Scanned Tag: {tag_hex}")
                         if tag_hex == VALID_UID_HEX:
                             system_active = True
-                            print("[SYSTEM] RFID Validated. Activating Voice Module...")                       
+                            print("[SYSTEM] RFID Validated. Activating Voice Module...")                        
                             play_audio("Ekran.mp3")
                             send_cmd(ser_mega, "SYSTEM_READY", "MEGA") 
                         else:
@@ -179,9 +233,13 @@ if __name__ == "__main__":
             cmd = command.lower()
             print(f">>> {cmd} ({score})")
 
+            # Route to MUSIC (YENİ: Eklenen kelimeler buraya da dahil edildi)
+            if cmd in ["müzik aç", "müzik çal", "bir", "iki", "üç", "dört", "müzik sustur", "sustur", "durdur", "çıkış"]:
+                play_music_routine(cmd, ser_uno)
+
             # Route to UNO
-            if cmd == "ekran göster":
-                send_cmd(ser_uno, "ekran-8F6", "UNO") 
+            elif cmd == "ekran göster":
+                send_cmd(ser_uno, "ekran-6B7", "UNO") 
             
             # Route to MEGA
             elif cmd == "pompayı aç":
