@@ -9,30 +9,33 @@ import threading
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 from vosk import Model, KaldiRecognizer
-from fuzzywuzzy import process
+from fuzzywuzzy import fuzz
 
 # ==========================================
 # CONFIG & INIT
 # ==========================================
 MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm'
-MEGA_PORT = '/dev/arduino_mega' # Update to actual Mega port
-UNO_PORT = '/dev/arduino_uno' # Update to actual Uno port
-BAUD_RATE = 9600
+MEGA_PORT = '/dev/arduino_mega' 
+UNO_PORT = '/dev/arduino_uno' 
+BAUD_RATE = 9600 # Consider changing to 115200 on all 3 devices later!
 AUDIO_FOLDER = "/home/pi/HospitalVC/Audios/TR"
 
 VALID_UID_HEX = "633A18F6B7"
 
-# YENİ: Dinlenecek komutlar listesine "müzik çal", "sustur", "durdur", "çıkış" eklendi.
-COMMANDS = [
+MAIN_COMMANDS = [
     "birinci kol gel", "birinci kol git", 
     "ikinci kol gel", "ikinci kol git", 
     "üçüncü kol gel", "üçüncü kol git",
     "ekran göster", "pompayı aç", "pompayı kapat",
-    "kol", "müzik aç", "müzik çal", "müzik sustur", "sustur", "durdur", "çıkış", "bir", "iki", "üç", "dört"
+    "kol", "müzik aç", "müzik çal", "müzik sustur", "sustur", "durdur", "çıkış"
 ]
-SENSITIVITY = 70
+# YENİ: Kısa kelime halüsinasyonlarını engellemek için "şarkı" eklendi.
+MUSIC_NUMBERS = ["şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört"]
+
+SENSITIVITY = 80
 
 system_active = False 
+is_music_menu_open = False  
 
 try:
     pygame.mixer.init()
@@ -51,59 +54,50 @@ def play_audio(filename):
     except Exception as e:
         print(f"[AUDIO FAILED] {e}")
 
-
 # ==========================================
 # MUSIC PLAYER ROUTINE
 # ==========================================
+# YENİ: Key'ler yeni komutlara göre güncellendi.
 SONG_MAP = {
-    "bir": "uzunincebiryoldayim.mp3",
-    "iki": "entersandman.mp3",
-    "üç": "cicekleryasta.mp3",
-    "dört": "lazziya.mp3"
+    "şarkı bir": "uzunincebiryoldayim.mp3",
+    "şarkı iki": "entersandman.mp3",
+    "şarkı üç": "cicekleryasta.mp3",
+    "şarkı dört": "lazziya.mp3"
 }
 
-# GÜVENLİK KİLİDİ: Başlangıçta menü kapalı
-is_music_menu_open = False  
-
 def play_music_routine(cmd, ser_uno):
-    global is_music_menu_open # Python'a kilidi kullanacağımızı söylüyoruz
+    global is_music_menu_open 
 
-    if cmd in ["müzik aç", "müzik çal"]:
-        is_music_menu_open = True # Menü açıldı, kilidi kaldır.
+    if cmd in ["müzik çal"]:
+        is_music_menu_open = True 
         send_cmd(ser_uno, "MUZIK_AC", "UNO")
-        print("[MUSIC] Müzik menüsü açıldı.")
+        print("[MUSIC] Müzik menüsü açıldı. (Sayı komutları aktif)")
         
     elif cmd in SONG_MAP:
-        # GÜVENLİK KONTROLÜ: Menü açık değilse sayıyı duymazdan gel.
         if not is_music_menu_open:
-            print("[WARNING] Menü kapalı! Önce 'Müzik Çal' demelisiniz.")
             return
 
-        # Rpi hafızasındaki önceki şarkıyı tamamen temizle (takılı kalmaması için)
         if pygame.mixer.music.get_busy():
             pygame.mixer.music.stop()
             pygame.mixer.music.unload()
 
-        # Spikerden gelen kelimeyi sayıya (1, 2) çevirip Uno'ya yolla
+        # Harika kısım: cmd "şarkı bir" olsa bile index 0 olacak, +1 ile UNO'ya "1" gidecek.
+        # UNO KODUNUN DEĞİŞMESİNE GEREK YOK!
         song_index = list(SONG_MAP.keys()).index(cmd) + 1
         send_cmd(ser_uno, str(song_index), "UNO")
         
-        # Rpi hoparlöründen müziği başlat
         file_name = SONG_MAP[cmd]
         print(f"[MUSIC] Çalınıyor: {file_name}")
         play_audio(file_name)
         
     elif cmd in ["müzik sustur", "sustur", "durdur", "çıkış"]:
-        is_music_menu_open = False # Menü kapandı, kilidi devreye sok.
-        
-        # Senin belirttiğin gibi MUZIK_KAPAT komutu gönderiliyor
+        is_music_menu_open = False 
         send_cmd(ser_uno, "MUZIK_KAPAT", "UNO") 
         
         if pygame.mixer.music.get_busy():
             pygame.mixer.music.stop()
             pygame.mixer.music.unload()
-        print("[MUSIC] Müzik durduruldu ve menü kapatıldı.")
-
+        print("[MUSIC] Müzik durduruldu. (Sayı komutları gizlendi)")
 
 def send_cmd(ser, cmd, name):
     if not ser:
@@ -118,9 +112,8 @@ def send_cmd(ser, cmd, name):
 # LISTENER CLASS
 # ==========================================
 class ActiveListener:
-    def __init__(self, model_path, commands, sensitivity=60):
+    def __init__(self, model_path, sensitivity=80):
         self.model_path = model_path
-        self.commands = commands
         self.sensitivity = sensitivity
         self.sample_rate = 16000
         self.chunk_size = 1024
@@ -146,23 +139,47 @@ class ActiveListener:
         self.stream.start_stream()
         print("[STATUS] Microphone Active. Listening for commands...")
 
+    def validate_command(self, text):
+        global is_music_menu_open
+        
+        active_commands = MAIN_COMMANDS.copy()
+        if is_music_menu_open:
+            active_commands.extend(MUSIC_NUMBERS)
+
+        best_match = None
+        best_score = 0
+        heard_len = len(text)
+
+        for cmd in active_commands:
+            if text == cmd:
+                return cmd, 100
+
+            base_score = fuzz.token_set_ratio(text, cmd)
+            cmd_len = len(cmd)
+            length_ratio = min(heard_len, cmd_len) / max(heard_len, cmd_len)
+            final_score = base_score * length_ratio
+
+            if final_score > best_score:
+                best_score = final_score
+                best_match = cmd
+
+        if best_score >= self.sensitivity:
+            return best_match, best_score
+        return None, best_score
+
     def listen(self):
         while True:
             try:
                 data = self.stream.read(self.chunk_size, exception_on_overflow=False)
                 if self.rec.AcceptWaveform(data):
                     res = json.loads(self.rec.Result())
-                    self.rec.Reset()
                     text = res.get("text", "").strip()
+                    
                     if not text:
                         continue
-                    
-                    if text in self.commands:
-                        yield text, 100
-                    else:
-                        match, score = process.extractOne(text, self.commands)
-                        if score >= self.sensitivity:
-                            yield match, score
+                    match, score = self.validate_command(text)
+                    if match:
+                        yield match, score
             except Exception as e:
                 break
 
@@ -179,7 +196,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[SERIAL WARNING] Check Arduino connections: {e}")
 
-    # --- Thread 1: Mega Serial Listener ---
     def mega_listener():
         while True:
             if ser_mega and ser_mega.in_waiting > 0:
@@ -188,7 +204,6 @@ if __name__ == "__main__":
                     print(f"[MEGA DEBUG] {line}")
             time.sleep(0.1)
 
-    # --- Thread 2: RPi RFID Scanner ---
     def rfid_listener():
         global system_active
         reader = SimpleMFRC522()
@@ -215,33 +230,28 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[RFID ERROR] {e}")
 
-    # Start Background Threads
     threading.Thread(target=mega_listener, daemon=True).start()
     threading.Thread(target=rfid_listener, daemon=True).start()
 
-    # Block main thread until RFID sets system_active to True
     print("[STATUS] Waiting for RFID Verification to boot voice processing...")
     try:
         while not system_active:
             time.sleep(0.5)
             
-        # RFID Validated! Now load Vosk and open the microphone.
-        listener = ActiveListener(MODEL_PATH, COMMANDS, SENSITIVITY)
+        listener = ActiveListener(MODEL_PATH, SENSITIVITY)
         listener.start()
 
         for command, score in listener.listen():
             cmd = command.lower()
-            print(f">>> {cmd} ({score})")
+            print(f">>> {cmd} ({score:.1f})")
 
-            # Route to MUSIC (YENİ: Eklenen kelimeler buraya da dahil edildi)
-            if cmd in ["müzik aç", "müzik çal", "bir", "iki", "üç", "dört", "müzik sustur", "sustur", "durdur", "çıkış"]:
+            # YENİ: Listeyi yeni komutları karşılayacak şekilde güncelledik.
+            if cmd in ["müzik aç", "müzik çal", "şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört", "müzik sustur", "sustur", "durdur", "çıkış"]:
                 play_music_routine(cmd, ser_uno)
 
-            # Route to UNO
             elif cmd == "ekran göster":
                 send_cmd(ser_uno, "ekran-6B7", "UNO") 
             
-            # Route to MEGA
             elif cmd == "pompayı aç":
                 send_cmd(ser_mega, "POMPAC", "MEGA")
             elif cmd == "pompayı kapat":
