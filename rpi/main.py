@@ -238,14 +238,22 @@ if __name__ == "__main__":
         while not system_active:
             time.sleep(0.5)
             
+        
         listener = ActiveListener(MODEL_PATH, SENSITIVITY)
+
+        
+        print("[STATUS] Intro (Ekran.mp3) is playing. Microphone is STANDBY...")
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.5)
+            
+        
+        print("[STATUS] Intro finished! Microphone is now ACTIVE.")
         listener.start()
 
         for command, score in listener.listen():
             cmd = command.lower()
             print(f">>> {cmd} ({score:.1f})")
 
-            # YENİ: Listeyi yeni komutları karşılayacak şekilde güncelledik.
             if cmd in ["müzik aç", "müzik çal", "şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört", "müzik sustur", "sustur", "durdur", "çıkış"]:
                 play_music_routine(cmd, ser_uno)
 
