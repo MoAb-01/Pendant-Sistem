@@ -100,13 +100,13 @@ void processCommand(String cmd) {
       pca.setPWM(1, 0, angleToPulse(angle));
     } 
     else if (cmd.indexOf("IKINCI") >= 0) {
-      //pca.setPWM(12, 0, angleToPulse(angle));
-      pca.setPWM(13, 0, angleToPulse(angle)); 
+      //pca.setPWM(13, 0, angleToPulse(angle));
       pca.setPWM(14, 0, angleToPulse(angle)); 
+      pca.setPWM(16, 0, angleToPulse(angle)); 
     }
     else if (cmd.indexOf("ÜÇÜNCÜ") >= 0) {
-      pca.setPWM(15, 0, angleToPulse(angle));
-      pca.setPWM(4, 0, angleToPulse(angle));
+      pca.setPWM(9, 0, angleToPulse(angle));
+      pca.setPWM(11, 0, angleToPulse(angle));
     }
     Serial.println("Arm Moved");
   }
