@@ -5,7 +5,7 @@
 // --- Pin Definitions ---
 #define RELAY_PIN 3      // Pump Relay (Wired NC)
 #define LED_PIN 6        // WS2812B Data Pin
-#define NUM_LEDS 3       // Number of LEDs in strip
+#define NUM_LEDS 148       // Number of LEDs in strip
 
 // --- Component Instances ---
 CRGB leds[NUM_LEDS];
