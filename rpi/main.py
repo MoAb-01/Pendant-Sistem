@@ -27,9 +27,10 @@ MAIN_COMMANDS = [
     "ikinci kol gel", "ikinci kol git", 
     "üçüncü kol gel", "üçüncü kol git",
     "ekran göster", "pompayı aç", "pompayı kapat",
-    "kol", "müzik aç", "müzik çal", "müzik sustur", "sustur", "durdur", "çıkış"
+    "kol", "müzik aç", "müzik çal", "müzik sustur", "sustur", "durdur", "çıkış",
+    "mail gönder"
 ]
-# YENİ: Kısa kelime halüsinasyonlarını engellemek için "şarkı" eklendi.
+
 MUSIC_NUMBERS = ["şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört"]
 
 SENSITIVITY = 70
@@ -55,58 +56,127 @@ def play_audio(filename):
         print(f"[AUDIO FAILED] {e}")
 
 # ==========================================
-# PHONETIC INTERCEPTOR (THE BRAIN FIX)
+# PHONETIC INTERCEPTOR (THE 4-LAYER BRAIN)
 # ==========================================
 PHONETIC_MAP = {
-    "com": "kol",
-    "çoğun": "üçüncü",
-    "çoğunun": "üçüncü",
-    "oyuncu": "üçüncü",
-    "icon": "ikinci",
-    "diyetler": "gel",
-    "diyet": "gel",
-    "çocuk": "üçüncü",
-    "ol": "kol",
-    "ghoul": "kol",
-    "concord": "üçüncü",
-    "çoğu": "kol",
-    "dev": "gel",
-    "öncü": "üçüncü",
-    "değerli": "gel",
-    "konuk": "kol",
-    "geldi": "gel",
-    "count": "kol",
-    "doğrudur": "durdur",
-    "gol": "kol",
-    "get": "git",
-    "covent": "kol gel",
-    "korgan": "kol gel",
-    "cool": "kol",
-    "giyip": "git",
-    "ikram": "ekran",
-    "goster": "göster"
+    # --- Birinci ---
+    "brent": "birinci", "bence": "birinci", "öğrenci": "birinci",
+    "direnci": "birinci", "verilecek": "birinci", "birincilik": "birinci",
+    "grange": "birinci", "brc":"birinci", "bürümcük":"birinci", "derince'yi":"birinci",
+
+    # --- İkinci ---
+    "ikincilik": "ikinci", "dikencik": "ikinci", "köktencilik": "ikinci",
+    "gelişi": "ikinci", "icon": "ikinci",
+
+    # --- Üçüncü ---
+    "çoğun": "üçüncü", "çoğunun": "üçüncü", "oyuncu": "üçüncü",
+    "çocuk": "üçüncü", "concord": "üçüncü", "öncü": "üçüncü",
+    "witcher":"üçüncü",
+
+    # --- Kol ---
+    "call": "kol", "khon": "kol", "khor": "kol", "ozgen": "kol",
+    "on": "kol", "kalk": "kol", "kovana": "kol", "spor": "kol",
+    "kongre": "kol", "com": "kol", "oğul": "kol", "koydu": "kol",
+    "gor": "kol", "cool": "kol", "ol": "kol", "ghoul": "kol",
+    "çoğu": "kol", "konuk": "kol", "count": "kol", "jorge":"kol", "igor":"kol",
+    "oğur":"kol", "koung":"kol", "koordine":"kol", "çokol":"kol",
+
+    # --- Kol Gel ---
+    "icom": "kol gel", "konka": "kol gel", "cordelia": "kol gel",
+    "korka": "kol gel", "coogan": "kol gel", "koldan": "kol gel",
+    "kongra-gel": "kol gel", "shoulder": "kol gel", "organ": "kol gel",
+    "onbeş": "kol gel", "order": "kol gel", "covent": "kol gel",
+    "korgan": "kol gel", "cougar": "kol gel", "kardemir": "kol gel",
+    "kongar": "kol gel", "jorge ev": "kol gel", "coulter": "kol gel",
+    "konya":"kol gel", "kolonun":"kol", "kongreler":"kol gel", "golgeler":"kol gel",
+
+    # --- Git / Gel ---
+    "iyi": "git", "yedi": "git", "diet": "git", "get": "git",
+    "giyip": "git", "değiliz": "git", "though it": "git", "yiğit": "git",
+    "diyetler": "gel", "diyet": "gel", "dev": "gel", "değerli": "gel",
+    "geldi": "gel", "gearbox": "gel", "göl":"gel", "da":"gel", "ev":"gel",
+    "general":"gel", "el":"gel", "genel":"gel",
+
+    # --- Kol Git ---
+    "orkid": "kol git", "conceal": "kol git", "orbit": "kol git", 
+    "brit": "kol git", "değil":"kol git",
+
+    # --- Ekran / Pompa / Mail ---
+    "ikram": "ekran", "idrar": "ekran", "yitiren":"ekran", "goster": "göster",
+    "gösterildi":"göster", "doğrudur": "durdur",
+    "meyil": "mail", "meyva": "mail", "mayhew": "mail", "mayın": "mail",
+    "meio": "mail", "meyve": "mail", "mayalı": "mail", "meno": "mail",
+    "meal": "mail", "meryem": "mail", "meğer": "mail", "memur": "mail",
+    "mev": "mail", "cindy": "mail", "menkul": "mail",
+    "gonderdi": "gönder", "gonder": "gönder", "bunda": "gönder",
+    "değer": "gönder",
+
+    # --- Müzik ---
+    "mujica": "müzik"
 }
 
 def clean_text(raw_text):
-    """Replaces known hallucinations with the correct words."""
-    cleaned = raw_text.replace("i̇", "i")  # Fix weird Turkish i
+    """
+    Four-layer cleaning:
+    1. Phrase Replacements (Context fixes)
+    2. Phonetic Map (Word-by-word fixes)
+    3. De-duplicator (Prevents "üçüncü üçüncü" stutters)
+    4. Music Guard (Forces ordinals back for songs)
+    """
+    cleaned = raw_text.lower().replace("i̇", "i").strip()
 
-    # --- PHRASE REPLACEMENTS (Context-Aware) ---
-    cleaned = cleaned.replace("kol dört", "kol git")
-    cleaned = cleaned.replace("kavramı", "kol git")
-    cleaned = cleaned.replace("üç oyuncu", "üçüncü")
-    cleaned = cleaned.replace("üç önce", "üçüncü")
-    cleaned = cleaned.replace("count dört", "kol git")
-    cleaned = cleaned.replace("concord çoğu dev", "üçüncü kol gel")
-    cleaned = cleaned.replace("üç öncü çoğu değerli", "üçüncü kol gel")
+    # --- LAYER 1: Multi-word fixes
+    phrases = {
+        "on iyi": "kol git",
+        "kol dört": "kol git",
+        "üç oyuncu": "üçüncü",
+        "concord çoğu dev": "üçüncü kol gel",
+        "iç önce": "üçüncü",
+        "üç üçüncü": "üçüncü",
+        "kor quiet": "kol git",
+        "koordine et": "kol git",
+        "tolga düet": "kol git",
+        "bu gönder": "gönder",
+        "uygun değer": "gönder",
+        "konuda": "gönder",
+        "hakkında": "gönder",
+        "mail gönder": "mail gönder",
+        "mail gonder": "mail gönder",
+        "menkuller": "mail gönder", 
+        "blogunda": "mail gönder", 
+        "golden": "mail gönder",
+        "medyagundem": "mail gönder"
+    }
+    for hall, corr in phrases.items():
+        cleaned = cleaned.replace(hall, corr)
 
-    # --- WORD REPLACEMENTS ---
+    # --- LAYER 2: WORD MAP ---
     words = cleaned.split()
     for i, word in enumerate(words):
         if word in PHONETIC_MAP:
             words[i] = PHONETIC_MAP[word]
 
-    return " ".join(words)
+    # --- LAYER 3: DE-DUPLICATOR ---
+    ordinals = {"birinci", "ikinci", "üçüncü"}
+    final_words = []
+    for i, word in enumerate(words):
+        if i > 0 and word in ordinals and word == final_words[-1]:
+            continue
+        final_words.append(word)
+
+    cleaned = " ".join(final_words)
+
+    # --- LAYER 4: MUSIC GUARD ---
+    music_fixes = {
+        "şarkı birinci": "şarkı bir",
+        "şarkı ikinci": "şarkı iki",
+        "şarkı üçüncü": "şarkı üç",
+        "şarkı dördüncü": "şarkı dört"
+    }
+    for ordinal, simple in music_fixes.items():
+        cleaned = cleaned.replace(ordinal, simple)
+
+    return " ".join(cleaned.split())
 
 # ==========================================
 # MUSIC PLAYER ROUTINE
@@ -121,7 +191,7 @@ SONG_MAP = {
 def play_music_routine(cmd, ser_uno):
     global is_music_menu_open 
 
-    if cmd in ["müzik çal"]:
+    if cmd in ["müzik çal", "müzik aç"]:
         is_music_menu_open = True 
         send_cmd(ser_uno, "MUZIK_AC", "UNO")
         print("[MUSIC] Müzik menüsü açıldı. (Sayı komutları aktif)")
@@ -163,7 +233,7 @@ def send_cmd(ser, cmd, name):
 # LISTENER CLASS
 # ==========================================
 class ActiveListener:
-    def __init__(self, model_path, sensitivity=80):
+    def __init__(self, model_path, sensitivity=70):
         self.model_path = model_path
         self.sensitivity = sensitivity
         self.sample_rate = 16000
@@ -232,7 +302,7 @@ class ActiveListener:
                     # 1. Apply Interceptor mapping BEFORE validation
                     text = clean_text(raw_text)
                     
-                    # 2. Print debug logs
+                    # 2. Print detailed debug logs for the console
                     print(f"\n[VOICE] Raw Heard : {raw_text}")
                     if raw_text != text:
                         print(f"[VOICE] Corrected : {text}")
@@ -301,15 +371,12 @@ if __name__ == "__main__":
         while not system_active:
             time.sleep(0.5)
             
-        
         listener = ActiveListener(MODEL_PATH, SENSITIVITY)
-
         
         print("[STATUS] Intro (Ekran.mp3) is playing. Microphone is STANDBY...")
         while pygame.mixer.music.get_busy():
             time.sleep(0.5)
             
-        
         print("[STATUS] Intro finished! Microphone is now ACTIVE.")
         listener.start()
 
