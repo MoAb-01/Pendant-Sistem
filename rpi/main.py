@@ -17,7 +17,7 @@ from fuzzywuzzy import fuzz
 MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm'
 MEGA_PORT = '/dev/arduino_mega' 
 UNO_PORT = '/dev/arduino_uno' 
-BAUD_RATE = 9600 # Consider changing to 115200 on all 3 devices later!
+BAUD_RATE = 9600 # Consider changing to 115200 
 AUDIO_FOLDER = "/home/pi/HospitalVC/Audios/TR"
 
 VALID_UID_HEX = "633A18F6B7"
@@ -32,7 +32,7 @@ MAIN_COMMANDS = [
 # YENİ: Kısa kelime halüsinasyonlarını engellemek için "şarkı" eklendi.
 MUSIC_NUMBERS = ["şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört"]
 
-SENSITIVITY = 80
+SENSITIVITY = 70
 
 system_active = False 
 is_music_menu_open = False  
@@ -55,9 +55,62 @@ def play_audio(filename):
         print(f"[AUDIO FAILED] {e}")
 
 # ==========================================
+# PHONETIC INTERCEPTOR (THE BRAIN FIX)
+# ==========================================
+PHONETIC_MAP = {
+    "com": "kol",
+    "çoğun": "üçüncü",
+    "çoğunun": "üçüncü",
+    "oyuncu": "üçüncü",
+    "icon": "ikinci",
+    "diyetler": "gel",
+    "diyet": "gel",
+    "çocuk": "üçüncü",
+    "ol": "kol",
+    "ghoul": "kol",
+    "concord": "üçüncü",
+    "çoğu": "kol",
+    "dev": "gel",
+    "öncü": "üçüncü",
+    "değerli": "gel",
+    "konuk": "kol",
+    "geldi": "gel",
+    "count": "kol",
+    "doğrudur": "durdur",
+    "gol": "kol",
+    "get": "git",
+    "covent": "kol gel",
+    "korgan": "kol gel",
+    "cool": "kol",
+    "giyip": "git",
+    "ikram": "ekran",
+    "goster": "göster"
+}
+
+def clean_text(raw_text):
+    """Replaces known hallucinations with the correct words."""
+    cleaned = raw_text.replace("i̇", "i")  # Fix weird Turkish i
+
+    # --- PHRASE REPLACEMENTS (Context-Aware) ---
+    cleaned = cleaned.replace("kol dört", "kol git")
+    cleaned = cleaned.replace("kavramı", "kol git")
+    cleaned = cleaned.replace("üç oyuncu", "üçüncü")
+    cleaned = cleaned.replace("üç önce", "üçüncü")
+    cleaned = cleaned.replace("count dört", "kol git")
+    cleaned = cleaned.replace("concord çoğu dev", "üçüncü kol gel")
+    cleaned = cleaned.replace("üç öncü çoğu değerli", "üçüncü kol gel")
+
+    # --- WORD REPLACEMENTS ---
+    words = cleaned.split()
+    for i, word in enumerate(words):
+        if word in PHONETIC_MAP:
+            words[i] = PHONETIC_MAP[word]
+
+    return " ".join(words)
+
+# ==========================================
 # MUSIC PLAYER ROUTINE
 # ==========================================
-# YENİ: Key'ler yeni komutlara göre güncellendi.
 SONG_MAP = {
     "şarkı bir": "uzunincebiryoldayim.mp3",
     "şarkı iki": "entersandman.mp3",
@@ -81,8 +134,6 @@ def play_music_routine(cmd, ser_uno):
             pygame.mixer.music.stop()
             pygame.mixer.music.unload()
 
-        # Harika kısım: cmd "şarkı bir" olsa bile index 0 olacak, +1 ile UNO'ya "1" gidecek.
-        # UNO KODUNUN DEĞİŞMESİNE GEREK YOK!
         song_index = list(SONG_MAP.keys()).index(cmd) + 1
         send_cmd(ser_uno, str(song_index), "UNO")
         
@@ -173,13 +224,25 @@ class ActiveListener:
                 data = self.stream.read(self.chunk_size, exception_on_overflow=False)
                 if self.rec.AcceptWaveform(data):
                     res = json.loads(self.rec.Result())
-                    text = res.get("text", "").strip()
+                    raw_text = res.get("text", "").strip()
                     
-                    if not text:
+                    if not raw_text:
                         continue
+                        
+                    # 1. Apply Interceptor mapping BEFORE validation
+                    text = clean_text(raw_text)
+                    
+                    # 2. Print debug logs
+                    print(f"\n[VOICE] Raw Heard : {raw_text}")
+                    if raw_text != text:
+                        print(f"[VOICE] Corrected : {text}")
+                        
+                    # 3. Validate
                     match, score = self.validate_command(text)
                     if match:
                         yield match, score
+                    else:
+                        print(f"[VOICE] No valid command (Confidence: {score:.1f})")
             except Exception as e:
                 break
 
@@ -252,7 +315,7 @@ if __name__ == "__main__":
 
         for command, score in listener.listen():
             cmd = command.lower()
-            print(f">>> {cmd} ({score:.1f})")
+            print(f">>> COMMAND DETECTED: {cmd} ({score:.1f})")
 
             if cmd in ["müzik aç", "müzik çal", "şarkı bir", "şarkı iki", "şarkı üç", "şarkı dört", "müzik sustur", "sustur", "durdur", "çıkış"]:
                 play_music_routine(cmd, ser_uno)
