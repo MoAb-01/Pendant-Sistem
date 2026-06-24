@@ -15,8 +15,8 @@ from fuzzywuzzy import fuzz
 # CONFIG & INIT
 # ==========================================
 MODEL_PATH = '/home/pi/Downloads/vosk-model-tr-0.18-robotarm'
-MEGA_PORT = '/dev/arduino_mega' 
-UNO_PORT = '/dev/arduino_uno' 
+MEGA_PORT = "/dev/ttyACM0" 
+UNO_PORT = "/dev/ttyUSB1" 
 BAUD_RATE = 9600 
 AUDIO_FOLDER = "/home/pi/HospitalVC/Audios/TR"
 
@@ -59,33 +59,63 @@ def play_audio(filename):
 # PHONETIC INTERCEPTOR (THE 4-LAYER BRAIN)
 # ==========================================
 PHONETIC_MAP = {
+    # --- "BİRİNCİ" MAPPINGS ---
     "brent": "birinci", "bence": "birinci", "öğrenci": "birinci",
     "direnci": "birinci", "verilecek": "birinci", "birincilik": "birinci",
     "grange": "birinci", "brc":"birinci", "bürümcük":"birinci", "derince'yi":"birinci",
-    "ikincilik": "ikinci", "dikencik": "ikinci", "köktencilik": "ikinci",
-    "gelişi": "ikinci", "icon": "ikinci",
+    "bjk": "birinci", "beren": "birinci", "bering": "birinci", "biri": "birinci",
+    
+    # --- "BİRİNCİ KOL" MAPPINGS (Combined words) ---
+    "brinco": "birinci kol", "bingo": "birinci kol", "minval": "birinci kol",
+    "dekor": "birinci kol", "bereli": "birinci kol", "ico": "birinci kol",
+    "intihal": "birinci kol", "dinçkol": "birinci kol",
+    
+    # --- "BİRİNCİ KOL GEL" MAPPINGS ---
+    "bingol": "birinci kol gel", "bingöl": "birinci kol gel",
+
+    # --- "İKİNCİ" MAPPINGS ---
+    "ikincilik": "ikinci", "dikencik": "ikinci", "köktencilik": "ikinci", 
+    "ekici" :"ikinci","iki":"ikinci", "gelişi": "ikinci", "icon": "ikinci",
+    "genci":"ikinci", "genc": "ikinci",
+    
+    # --- "ÜÇÜNCÜ" MAPPINGS ---
     "çoğun": "üçüncü", "çoğunun": "üçüncü", "oyuncu": "üçüncü",
-    "çocuk": "üçüncü", "concord": "üçüncü", "öncü": "üçüncü", "witcher":"üçüncü",
-    "call": "kol", "khon": "kol", "khor": "kol", "ozgen": "kol",
-    "on": "kol", "kalk": "kol", "kovana": "kol", "spor": "kol",
+    "çocuk": "üçüncü", "concord": "üçüncü", "öncü": "üçüncü", "witcher":"üçüncü", "üç":"üçüncü",
+    
+    # --- "KOL" MAPPINGS ---
+    "call": "kol", "khon": "kol", "khor": "kol", "ozgen": "kol" , "gol" : "kol", 
+    "on": "kol", "kalk": "kol", "kovana": "kol", "spor": "kol", "kul" :"kol",
     "kongre": "kol", "com": "kol", "oğul": "kol", "koydu": "kol",
-    "gor": "kol", "cool": "kol", "ol": "kol", "ghoul": "kol",
+    "gor": "kol", "cool": "kol", "ol": "kol", "ghoul": "kol", "col":"kol",
     "çoğu": "kol", "konuk": "kol", "count": "kol", "jorge":"kol", "igor":"kol",
-    "oğur":"kol", "koung":"kol", "koordine":"kol", "çokol":"kol",
+    "oğur":"kol", "koung":"kol", "koordine":"kol", "çokol":"kol", "hol": "kol",
+    "escort": "kol",
+    
+    # --- "KOL GEL" MAPPINGS ---
     "icom": "kol gel", "konka": "kol gel", "cordelia": "kol gel",
     "korka": "kol gel", "coogan": "kol gel", "koldan": "kol gel",
     "kongra-gel": "kol gel", "shoulder": "kol gel", "organ": "kol gel",
     "onbeş": "kol gel", "order": "kol gel", "covent": "kol gel",
     "korgan": "kol gel", "cougar": "kol gel", "kardemir": "kol gel",
     "kongar": "kol gel", "jorge ev": "kol gel", "coulter": "kol gel",
-    "konya":"kol gel", "kolonun":"kol", "kongreler":"kol gel", "golgeler":"kol gel",
-    "iyi": "git", "yedi": "git", "diet": "git", "get": "git",
+    "konya":"kol gel", "kongreler":"kol gel", "golgeler":"kol gel", 
+    "kollar": "kol gel", "kolay": "kol gel",
+    
+    # --- "KOL GİT" MAPPINGS ---
+    "orkid": "kol git", "conceal": "kol git", "orbit": "kol git", 
+    "brit": "kol git", "değil":"kol git", "kokpit": "kol git",
+    
+    # --- "GİT" & "GEL" MAPPINGS ---
+    "iyi": "git", "yedi": "git", "diet": "git", "get": "git", "gir" :"git",
     "giyip": "git", "değiliz": "git", "though it": "git", "yiğit": "git",
+    "it": "git",
     "diyetler": "gel", "diyet": "gel", "dev": "gel", "değerli": "gel",
     "geldi": "gel", "gearbox": "gel", "göl":"gel", "da":"gel", "ev":"gel",
-    "general":"gel", "el":"gel", "genel":"gel",
-    "orkid": "kol git", "conceal": "kol git", "orbit": "kol git", 
-    "brit": "kol git", "değil":"kol git",
+    "general":"gel", "el":"gel", "genel":"gel", "bel": "gel", "der": "gel", 
+    "deyip": "gel",
+    
+    # --- OTHER MAPPINGS ---
+    "kolonun":"kol", 
     "ikram": "ekran", "idrar": "ekran", "yitiren":"ekran", "goster": "göster",
     "gösterildi":"göster", "doğrudur": "durdur",
     "meyil": "mail", "meyva": "mail", "mayhew": "mail", "mayın": "mail",
@@ -94,11 +124,14 @@ PHONETIC_MAP = {
     "mev": "mail", "cindy": "mail", "menkul": "mail",
     "gonderdi": "gönder", "gonder": "gönder", "bunda": "gönder",
     "değer": "gönder",
-    "mujica": "müzik"
+    "mujica": "müzik",
+    "sınır":"sustur","tur":"sustur","sıfır":"sustur"
 }
 
 def clean_text(raw_text):
     cleaned = raw_text.lower().replace("i̇", "i").strip()
+    
+    # --- PHRASE MAPPINGS ---
     phrases = {
         "on iyi": "kol git", "kol dört": "kol git", "üç oyuncu": "üçüncü",
         "concord çoğu dev": "üçüncü kol gel", "iç önce": "üçüncü",
@@ -106,8 +139,20 @@ def clean_text(raw_text):
         "tolga düet": "kol git", "bu gönder": "gönder", "uygun değer": "gönder",
         "konuda": "gönder", "hakkında": "gönder", "mail gönder": "mail gönder",
         "mail gonder": "mail gönder", "menkuller": "mail gönder", 
-        "blogunda": "mail gönder", "golden": "mail gönder", "medyagundem": "mail gönder"
+        "blogunda": "mail gönder", "golden": "mail gönder", "medyagundem": "mail gönder",
+        
+        # New phrase mappings added based on user logs
+        "en cool gel": "birinci kol gel",
+        "bir infial": "birinci kol gel",
+        "bir oğul değer": "birinci kol gel",
+        "beren cool değil": "birinci kol git",
+        "bir ekol it": "birinci kol gel",
+        "call giyip": "birinci kol gel",
+        "en kol bel": "birinci kol gel",
+        "bir kol gel": "birinci kol gel",
+        "intihal git": "birinci kol git"
     }
+    
     for hall, corr in phrases.items():
         cleaned = cleaned.replace(hall, corr)
 
