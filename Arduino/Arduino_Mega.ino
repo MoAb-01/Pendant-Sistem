@@ -90,23 +90,18 @@ void processCommand(String cmd) {
     int angle = (cmd.indexOf("GEL") >= 0) ? 90 : 0;
     
     // Arm Channel Mapping
-
-
-    /////////////   //////////////
-    //  We need to check PCA pins//
-    ///////////// //////////////
     if (cmd.indexOf("BIRINCI") >= 0) {
       pca.setPWM(0, 0, angleToPulse(angle));
       pca.setPWM(1, 0, angleToPulse(angle));
     } 
     else if (cmd.indexOf("IKINCI") >= 0) {
-      //pca.setPWM(13, 0, angleToPulse(angle));
-      pca.setPWM(14, 0, angleToPulse(angle)); 
-      pca.setPWM(16, 0, angleToPulse(angle)); 
+      pca.setPWM(9, 0, angleToPulse(angle));
+      pca.setPWM(10, 0, angleToPulse(angle)); 
+      pca.setPWM(11, 0, angleToPulse(angle)); 
     }
     else if (cmd.indexOf("ÜÇÜNCÜ") >= 0) {
-      pca.setPWM(9, 0, angleToPulse(angle));
-      pca.setPWM(11, 0, angleToPulse(angle));
+      pca.setPWM(12, 0, angleToPulse(angle));
+      pca.setPWM(14, 0, angleToPulse(angle));
     }
     Serial.println("Arm Moved");
   }
