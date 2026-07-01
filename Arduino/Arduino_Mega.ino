@@ -19,64 +19,46 @@ int servo[16];
 // System State
 bool systemActive = false;
 
+// --- Helper Prototypes ---
+uint16_t angleToPulse(int a);
+void resetAllArms();
+void flashLEDGreen();
+
 void setup() {
   Serial.begin(9600);
   
-  // LED Setup (Initially RED/Standby)
-  FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
-  fill_solid(leds, NUM_LEDS, CRGB::Red);
-  FastLED.show();
-
-  // Relay Setup
+  // 1. Initialize Outputs immediately
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH); // Assuming HIGH turns NC to Open (Pump OFF)
-
-  // PCA9685 Setup
+  digitalWrite(RELAY_PIN, HIGH); // Force Pump OFF (Relay NC to Open)
+  
+  // 2. Initialize PCA9685
   Wire.begin();
   pca.begin();
   pca.setOscillatorFrequency(27000000);
   pca.setPWMFreq(50);
-  delay(10);
   
-  // Set initial servo positions to 0
+  // 3. Force Reset ALL Servos to Home (Angle 0)
   for(int i=0; i<16; i++) {
-    servo[i] = 0;
     pca.setPWM(i, 0, angleToPulse(0)); 
   }
   
-  Serial.println("Mega Ready. Waiting for Pi/Web Authorization...");
-}
-
-uint16_t angleToPulse(int a) {
-  a = constrain(a, 0, 180);
-  return map(a, 0, 180, SERVOMIN, SERVOMAX);
-}
-
-// 🚀 NON-BLOCKING LED FLASH
-// Keeps the delay extremely short so the web sliders don't lag
-void flashLEDGreen() {
-  fill_solid(leds, NUM_LEDS, CRGB::Green);
+  // 4. Initialize LEDs
+  FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(50); 
+  fill_solid(leds, NUM_LEDS, CRGB::Red); // Indicate system is STANDBY/RESET
   FastLED.show();
-  delay(150); 
-  fill_solid(leds, NUM_LEDS, CRGB::Blue);
-  FastLED.show();
-}
-
-// Emergency Reset function to fold the arm back to safety
-void resetAllArms() {
-  int safeChannels[] = {0, 1, 9, 10, 11, 12, 14};
-  for (int ch : safeChannels) {
-    pca.setPWM(ch, 0, angleToPulse(0));
-  }
+  
+  // 5. Final Delay to let hardware settle
+  delay(1000); 
+  
+  Serial.println("Mega Ready. All arms homed, Pump OFF.");
 }
 
 void processCommand(String cmd) {
   cmd.trim();
   cmd.toUpperCase();
 
-  // ==========================================
-  // 1. MASTER SYSTEM CONTROLS (Bypasses Lock)
-  // ==========================================
+  // 1. MASTER SYSTEM CONTROLS
   if (cmd == "SYSTEM_READY") {
     systemActive = true;
     fill_solid(leds, NUM_LEDS, CRGB::Blue);
@@ -86,21 +68,17 @@ void processCommand(String cmd) {
   }
   else if (cmd == "SYSTEM_OFF") {
     systemActive = false;
-    digitalWrite(RELAY_PIN, HIGH); // Kill Pump
-    resetAllArms();                // Fold arm back
-    fill_solid(leds, NUM_LEDS, CRGB::Red); // Return to standby
+    digitalWrite(RELAY_PIN, HIGH); 
+    resetAllArms(); 
+    fill_solid(leds, NUM_LEDS, CRGB::Red); 
     FastLED.show();
     Serial.println("System Shutdown via UI/Voice.");
     return;
   }
 
-  // IGNORING ALL OTHER COMMANDS IF SYSTEM IS LOCKED
   if (!systemActive) return;
 
-  // ==========================================
-  // 2. WEB SLIDER CONTROLS (Direct Servo Parsing)
-  // Format: SERVO:port:aci (Example: SERVO:14:90)
-  // ==========================================
+  // 2. WEB SLIDER CONTROLS
   if (cmd.startsWith("SERVO:")) {
     int firstColon = cmd.indexOf(':');
     int secondColon = cmd.indexOf(':', firstColon + 1);
@@ -108,16 +86,27 @@ void processCommand(String cmd) {
     if (firstColon > 0 && secondColon > 0) {
       int port = cmd.substring(firstColon + 1, secondColon).toInt();
       int aci = cmd.substring(secondColon + 1).toInt();
-      
       pca.setPWM(port, 0, angleToPulse(aci));
       Serial.println("Slider Executed: Port " + String(port) + " -> " + String(aci));
     }
-    return; // No green flash for sliders to keep movement perfectly smooth
+    return;
   }
 
-// ==========================================
+  // 🔴 BLUE AND PURPLE LED İÇİN EKLENMESİ GEREKEN KISIM
+  if (cmd == "LED_BLUE") {
+    fill_solid(leds, NUM_LEDS, CRGB::Blue);
+    FastLED.show();
+    Serial.println("Mod: Calisma (Mavi)");
+    return; // Sadece ışık değiştiği için yeşil flaş atmasına gerek yok
+  }
+  else if (cmd == "LED_PURPLE") {
+    fill_solid(leds, NUM_LEDS, CRGB::Purple); // Sterilizasyon rengi
+    FastLED.show();
+    Serial.println("Mod: Sterilizasyon (Mor)");
+    return;
+  }
+
   // 3. MECHANICAL & RELAY CONTROLS
-  // ==========================================
   if(cmd == "POMPAC") {
     digitalWrite(RELAY_PIN, LOW);
     Serial.println("Pump Activated");
@@ -129,12 +118,10 @@ void processCommand(String cmd) {
   else if (cmd.indexOf("KOL GEL") >= 0 || cmd.indexOf("KOL GIT") >= 0) {
     int angle = (cmd.indexOf("GEL") >= 0) ? 90 : 0;
     
-    // Emergency full reset
     if (cmd == "KOL GIT") {
         resetAllArms();
         Serial.println("All Arms Reset");
     }
-    // Specific arm targeting using Safe ASCII
     else if (cmd.indexOf("ARM1") >= 0) {
       pca.setPWM(0, 0, angleToPulse(angle));
       pca.setPWM(1, 0, angleToPulse(angle));
@@ -145,12 +132,11 @@ void processCommand(String cmd) {
       pca.setPWM(11, 0, angleToPulse(angle)); 
     }
     else if (cmd.indexOf("ARM3") >= 0) {
-      pca.setPWM(13, 0, angleToPulse(angle)); // Connected to port 13
+      pca.setPWM(13, 0, angleToPulse(angle));
     }
     Serial.println("Arm Moved via Safe ASCII");
   }
   
-  // Flash green only for discrete commands (Voice or Buttons), not sliders
   flashLEDGreen();
 }
 
@@ -159,4 +145,26 @@ void loop() {
     String command = Serial.readStringUntil('\n');
     processCommand(command);
   }
+}
+
+// --- FULL FUNCTION DEFINITIONS (DON'T DELETE THESE!) ---
+
+uint16_t angleToPulse(int a) {
+  a = constrain(a, 0, 180);
+  return map(a, 0, 180, SERVOMIN, SERVOMAX);
+}
+
+void resetAllArms() {
+  int safeChannels[] = {0, 1, 9, 10, 11, 12, 14};
+  for (int ch : safeChannels) {
+    pca.setPWM(ch, 0, angleToPulse(0));
+  }
+}
+
+void flashLEDGreen() {
+  fill_solid(leds, NUM_LEDS, CRGB::Green);
+  FastLED.show();
+  delay(150); 
+  fill_solid(leds, NUM_LEDS, CRGB::Blue);
+  FastLED.show();
 }
